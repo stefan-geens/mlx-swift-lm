@@ -64,11 +64,11 @@ public class Gemma4Model: Module, LLMModel, KVCacheDimensionProvider {
         for (key, value) in weights {
             var k = key
 
-            // Strip "model." prefix
+            // strip outer "model." prefix (present in VLM checkpoints)
             let startsWithModel = k.hasPrefix("model.")
             k = k.replacingOccurrences(of: "model.", with: "", options: .anchored)
 
-            // Skip vision/audio weights
+            // skip vision/audio tower weights
             if k.hasPrefix("vision_tower") || k.hasPrefix("multi_modal_projector")
                 || k.hasPrefix("audio_tower") || k.hasPrefix("embed_audio")
                 || k.hasPrefix("embed_vision")
@@ -76,15 +76,17 @@ public class Gemma4Model: Module, LLMModel, KVCacheDimensionProvider {
                 continue
             }
 
-            if !startsWithModel {
-                sanitized[k] = value
-                continue
-            }
-
-            // Remap language_model keys
-            if k.hasPrefix("language_model") {
-                k = k.replacingOccurrences(
-                    of: "language_model.", with: "language_model.model.", options: .anchored)
+            // remap language_model. -> languageModel. to match Swift property name;
+            // for VLM weights the outer "model." was already stripped above, so
+            // the key is now "language_model.model.layers.…"; for text-only
+            // checkpoints the key arrives as "language_model.model.layers.…" and
+            // startsWithModel is false
+            if k.hasPrefix("language_model.") {
+                k = "languageModel." + String(k.dropFirst("language_model.".count))
+            } else if startsWithModel {
+                // keys under "model." that are not language_model (e.g. embeddings
+                // at the top level of a text-only config)
+                k = "languageModel.model." + k
             }
 
             sanitized[k] = value
